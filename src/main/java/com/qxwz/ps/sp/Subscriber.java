@@ -248,10 +248,13 @@ public class Subscriber extends ChannelInboundHandlerAdapter implements IZkChild
 				keys.add(entry.getKey());
 			}
 		}
-		log.info("故障转移的key:{}", keys);
-		for(String key: keys)
+		if(keys.size() > 0)
 		{
-			this.subscribe(key);
+			log.info("故障转移的key:{}", keys);
+			for(String key: keys)
+			{
+				this.subscribe(key);
+			}
 		}
 	}
 	
