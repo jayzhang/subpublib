@@ -1,8 +1,8 @@
 package com.qxwz.ps.sp;
 
+import java.util.HashSet;
 import java.util.Set;
 
-import com.alibaba.dubbo.common.utils.ConcurrentHashSet;
 import com.qxwz.ps.sp.msg.Message;
 import com.qxwz.ps.sp.msg.SubMessage;
 import com.qxwz.ps.sp.msg.UnsubMessage;
@@ -17,7 +17,7 @@ public class PublisherChannelHandler extends ChannelInboundHandlerAdapter{
 
 	private Publisher publisher;
 	
-	public volatile Set<String> keys = new ConcurrentHashSet<>(); // 订阅的所有key的集合
+	public volatile Set<String> keys = new HashSet<>(); // 订阅的所有key的集合
 	
 	public PublisherChannelHandler(Publisher publisher)
 	{

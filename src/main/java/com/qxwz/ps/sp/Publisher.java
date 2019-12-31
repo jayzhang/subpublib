@@ -7,9 +7,7 @@ import java.util.TreeSet;
 import org.I0Itec.zkclient.ZkClient;
 import org.apache.commons.lang.StringUtils;
 
-import com.alibaba.dubbo.common.utils.ConcurrentHashSet;
 import com.google.common.base.Joiner;
-import com.qxwz.columbus.client.util.NetUtils;
 import com.qxwz.ps.sp.msg.PubMessage;
 
 import io.netty.bootstrap.ServerBootstrap;
@@ -45,7 +43,7 @@ public class Publisher{
 	private EventLoopGroup workerGroup;
 	
 	private volatile Set<String> keys = new TreeSet<>(); // 订阅的所有key的集合
-	private volatile Set<Channel> channels = new ConcurrentHashSet<>();
+	private volatile Set<Channel> channels = new HashSet<>();
 	
 	private String mypath;
 	private int msgNum = 0;
@@ -121,17 +119,17 @@ public class Publisher{
 	}
 	
 
-	public void addChannel(Channel channel)
+	synchronized public void addChannel(Channel channel)
 	{
 		channels.add(channel);
 	}
-	public void removeChannel(Channel channel)
+	synchronized public void removeChannel(Channel channel)
 	{
 		channels.remove(channel);
 	}
 	
 	///模拟发送数据
-	public void pubdataMock()
+	synchronized public void pubdataMock()
 	{
 		Set<String> allKeys = new HashSet<>();
 		for(Channel channel: channels)
@@ -139,14 +137,13 @@ public class Publisher{
 			Set<String> keys = channel.pipeline().get(PublisherChannelHandler.class).keys;
 			allKeys.addAll(keys);
 		}
-		
 		for(String key: allKeys)
 		{
 			publish(key, key.getBytes());
 		}
 	}
 	
-	public void publish(String key, byte[] data)
+	synchronized public void publish(String key, byte[] data)
 	{
 		PubMessage pub = new PubMessage(key, data);
 		for(Channel channel: channels)

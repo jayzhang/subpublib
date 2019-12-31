@@ -63,7 +63,7 @@ public class Subscriber extends ChannelInboundHandlerAdapter implements IZkChild
 	
 	public void init()
 	{
-		workerGroup = new NioEventLoopGroup(0, new DefaultThreadFactory("Subscriber-Worker"));
+		workerGroup = new NioEventLoopGroup(1, new DefaultThreadFactory("Subscriber-Worker"));
 		clientbootstrap = new Bootstrap();
 		clientbootstrap.group(workerGroup).channel(NioSocketChannel.class)
         .option(ChannelOption.TCP_NODELAY, true)  
