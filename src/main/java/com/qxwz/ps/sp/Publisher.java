@@ -35,6 +35,8 @@ public class Publisher{
 	private int port = 29001;
 	@Setter
 	private ZkClient zkclient;
+	@Setter
+	private int syncZkInterval = 10;//检查并同步订阅关系到ZK的频率，单位秒
 	
 	@Setter @Getter
 	private ISubHandler subHandler;
@@ -82,24 +84,21 @@ public class Publisher{
 		
 		
 		Thread t = new Thread(new Runnable() {
-
 			@Override
-			public void run() {
-				
+			public void run() 
+			{	
 				while(true)
 				{
 					checkKeysChange();
-					
 					try {
-						Thread.sleep(10000);
+						Thread.sleep(syncZkInterval * 1000);
 					} catch (InterruptedException e) {
 						// TODO Auto-generated catch block
 						e.printStackTrace();
 					}
 				}
 			}
-			
-		});
+		}, "SubKeysSyncer");
        
 		t.start();
 	}
