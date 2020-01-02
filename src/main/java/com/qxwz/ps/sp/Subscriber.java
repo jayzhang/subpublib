@@ -44,7 +44,10 @@ import lombok.extern.slf4j.Slf4j;
 public class Subscriber extends ChannelInboundHandlerAdapter implements IZkChildListener, IZkDataListener{
 
 	@Setter 
-	private int maxReconnCount = 5;
+	private int maxReconnCount = 5; //最大重连次数
+	
+	@Setter
+	private int reconnInteval = 1000; //重连间隔
 	
 	private String zkBasePath;	
 	private ZkClient zkclient;
@@ -55,7 +58,6 @@ public class Subscriber extends ChannelInboundHandlerAdapter implements IZkChild
 	private volatile Map<String, Channel> key2channel = new HashMap<>();  // key------>channel
 	private int msgNum = 0;
 	private ExecutorService executorService = Executors.newSingleThreadExecutor();
-	private volatile Set<String> subedKeys = new HashSet<>();
 	
 	@Setter
 	private IPubHandler pubHandler;
@@ -311,7 +313,7 @@ public class Subscriber extends ChannelInboundHandlerAdapter implements IZkChild
 						return ;
 					}
 					try {
-						Thread.sleep(5000);
+						Thread.sleep(reconnInteval);
 					} catch (InterruptedException e) {
 						// TODO Auto-generated catch block
 						e.printStackTrace();
