@@ -8,6 +8,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import org.I0Itec.zkclient.IZkChildListener;
 import org.I0Itec.zkclient.IZkDataListener;
@@ -41,14 +43,19 @@ import lombok.extern.slf4j.Slf4j;
 @Sharable
 public class Subscriber extends ChannelInboundHandlerAdapter implements IZkChildListener, IZkDataListener{
 
+	@Setter 
+	private int maxReconnCount = 5;
+	
 	private String zkBasePath;	
 	private ZkClient zkclient;
 	private EventLoopGroup workerGroup;
 	private Bootstrap clientbootstrap;
-	private volatile Map<String, Channel> channelMap = new HashMap<>(); // channel address ----> channel
-	private volatile Map<String, Set<String>> routerMap = new HashMap<>(); // channel address ----> key set
+	private volatile Map<String, Channel> channelMap = new HashMap<>(); // remote channel address ----> channel
+	private volatile Map<String, Set<String>> routerMap = new HashMap<>(); // remote channel address ----> key set
 	private volatile Map<String, Channel> key2channel = new HashMap<>();  // key------>channel
 	private int msgNum = 0;
+	private ExecutorService executorService = Executors.newSingleThreadExecutor();
+	private volatile Set<String> subedKeys = new HashSet<>();
 	
 	@Setter
 	private IPubHandler pubHandler;
@@ -63,6 +70,11 @@ public class Subscriber extends ChannelInboundHandlerAdapter implements IZkChild
 	
 	public void init()
 	{
+		if(!zkclient.exists(zkBasePath))
+		{
+			zkclient.createPersistent(zkBasePath);
+		}
+		
 		workerGroup = new NioEventLoopGroup(1, new DefaultThreadFactory("Subscriber-Worker"));
 		clientbootstrap = new Bootstrap();
 		clientbootstrap.group(workerGroup).channel(NioSocketChannel.class)
@@ -104,7 +116,6 @@ public class Subscriber extends ChannelInboundHandlerAdapter implements IZkChild
 				Channel channel = connect(child);
 				if(channel != null)
 				{
-					channelMap.put(child, channel);
 					String dataPath = parentPath + "/" + child;
 					zkclient.subscribeDataChanges(dataPath, this);  //订阅数据变化
 					Object data = zkclient.readData(dataPath, true);
@@ -120,15 +131,28 @@ public class Subscriber extends ChannelInboundHandlerAdapter implements IZkChild
 		List<String> arr = Splitter.on(":").splitToList(addr);
 		try {
 			ChannelFuture future = clientbootstrap.connect(arr.get(0), Integer.parseInt(arr.get(1))).sync();
+			log.info("连接成功:{}", future.channel());
+			channelMap.put(addr, future.channel());
+			checkFailedSubs();// 只要有新的连接成功，则检查是否有历史失败的订阅
 			return future.channel();
-		} catch (NumberFormatException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		} catch (InterruptedException e) {
+		} catch (Exception e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
 		return null;
+	}
+	
+	private void checkFailedSubs()
+	{
+		for(String k: key2channel.keySet())
+		{
+			Channel channel = key2channel.get(k);
+			if(channel == null || !channel.isOpen())
+			{
+				log.info("重新发起订阅:{}", k);
+				this.subscribe(k);
+			}
+		}
 	}
 
 
@@ -209,6 +233,7 @@ public class Subscriber extends ChannelInboundHandlerAdapter implements IZkChild
 		}
 		else 
 		{
+			key2channel.put(key, null); //暂时无法找到pub
 			log.error("没有pub可订阅!");
 		}
 	}
@@ -260,7 +285,44 @@ public class Subscriber extends ChannelInboundHandlerAdapter implements IZkChild
 	
 	@Override
     public void channelInactive(ChannelHandlerContext ctx) throws Exception {
-		transferKeys(ctx.channel());
+		
+		String remote = ctx.channel().remoteAddress().toString().substring(1);
+		
+		Set<String> setNullKeys = new HashSet<>();
+		for(String k : key2channel.keySet())
+		{
+			if(ctx.channel() == key2channel.get(k) )
+			{
+				setNullKeys.add(k);
+			}
+		}
+		
+		executorService.execute(new Runnable() {
+
+			@Override
+			public void run() {
+				Channel channel = null;
+				for(int i = 0 ; i < maxReconnCount; ++ i)
+				{
+					log.warn("remote 关闭，重新连接:{}", remote);
+					channel = connect(remote);
+					if(channel != null) //重连成功，重新维护订阅关系
+					{
+						return ;
+					}
+					try {
+						Thread.sleep(5000);
+					} catch (InterruptedException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
+				}
+				//重连几次都失败
+				transferKeys(ctx.channel());
+			}
+		});
+		
+//		transferKeys(ctx.channel());
     }
 	
 	public void unsubscribe(String key)

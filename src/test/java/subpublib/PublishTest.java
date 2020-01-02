@@ -35,21 +35,21 @@ public class PublishTest {
 		pub1.setSubHandler(handler);
 		pub1.init();
 		
-		Publisher pub2 = new Publisher(zkclient, "/subpub_test");
-		pub2.setPort(29002);
-		pub2.setSubHandler(handler);
-		pub2.init();
-		
-		Publisher pub3 = new Publisher(zkclient, "/subpub_test");
-		pub3.setPort(29003);
-		pub3.setSubHandler(handler);
-		pub3.init();
+//		Publisher pub2 = new Publisher(zkclient, "/subpub_test");
+//		pub2.setPort(29002);
+//		pub2.setSubHandler(handler);
+//		pub2.init();
+//		
+//		Publisher pub3 = new Publisher(zkclient, "/subpub_test");
+//		pub3.setPort(29003);
+//		pub3.setSubHandler(handler);
+//		pub3.init();
 		
 		while(true)
 		{
 			pub1.pubdataMock();
-			pub2.pubdataMock();
-			pub3.pubdataMock();
+//			pub2.pubdataMock();
+//			pub3.pubdataMock();
 			Thread.sleep(1000);
 		}
 	}

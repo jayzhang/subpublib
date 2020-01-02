@@ -56,11 +56,17 @@ public class Publisher{
 	
 	public void init()
 	{
+		if(!zkclient.exists(zkBasePath))
+		{
+			zkclient.createPersistent(zkBasePath);
+		}
+		
 		bossGroup = new NioEventLoopGroup(1, new DefaultThreadFactory("Publisher-Boss")); 
 		workerGroup = new NioEventLoopGroup(0, new DefaultThreadFactory("Publisher-Worker"));
 		ServerBootstrap b = new ServerBootstrap();
 		
 		String localhost = NetUtils.getLocalHost();
+		
 		mypath = zkBasePath + "/" + localhost+":"+port;
 		 
         b.group(bossGroup, workerGroup)

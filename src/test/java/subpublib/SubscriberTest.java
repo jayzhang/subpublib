@@ -32,21 +32,21 @@ public class SubscriberTest {
 			sub1.subscribe(i + "");
 		}
 		
-		Subscriber sub2 = new Subscriber(zkclient, "/subpub_test");
-		sub2.setPubHandler(handler);
-		sub2.init();
-		for(int i = 5; i < 15; ++ i)
-		{
-			sub2.subscribe(i + "");
-		}
-		
-		Subscriber sub3 = new Subscriber(zkclient, "/subpub_test");
-		sub3.setPubHandler(handler);
-		sub3.init();
-		for(int i = 10; i < 20; ++ i)
-		{
-			sub3.subscribe(i + "");
-		}
+//		Subscriber sub2 = new Subscriber(zkclient, "/subpub_test");
+//		sub2.setPubHandler(handler);
+//		sub2.init();
+//		for(int i = 5; i < 15; ++ i)
+//		{
+//			sub2.subscribe(i + "");
+//		}
+//		
+//		Subscriber sub3 = new Subscriber(zkclient, "/subpub_test");
+//		sub3.setPubHandler(handler);
+//		sub3.init();
+//		for(int i = 10; i < 20; ++ i)
+//		{
+//			sub3.subscribe(i + "");
+//		}
 	}
 
 }
