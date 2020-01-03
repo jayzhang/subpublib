@@ -1,86 +1,71 @@
 package com.qxwz.ps.sp;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Map.Entry;
-import java.util.Set;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-
-import org.I0Itec.zkclient.IZkChildListener;
-import org.I0Itec.zkclient.IZkDataListener;
-import org.I0Itec.zkclient.ZkClient;
-import org.apache.commons.lang.StringUtils;
-
 import com.google.common.base.Splitter;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-import com.qxwz.ps.sp.msg.Message;
 import com.qxwz.ps.sp.msg.PubMessage;
 import com.qxwz.ps.sp.msg.SubMessage;
 import com.qxwz.ps.sp.msg.UnsubMessage;
-
 import io.netty.bootstrap.Bootstrap;
-import io.netty.channel.Channel;
-import io.netty.channel.ChannelFuture;
+import io.netty.channel.*;
 import io.netty.channel.ChannelHandler.Sharable;
-import io.netty.channel.ChannelHandlerContext;
-import io.netty.channel.ChannelInboundHandlerAdapter;
-import io.netty.channel.ChannelOption;
-import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.util.concurrent.DefaultThreadFactory;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
+import org.I0Itec.zkclient.IZkChildListener;
+import org.I0Itec.zkclient.IZkDataListener;
+import org.I0Itec.zkclient.ZkClient;
+import org.apache.commons.lang.StringUtils;
+
+import java.util.*;
+import java.util.Map.Entry;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 
 @Slf4j
 @Sharable
 public class Subscriber extends ChannelInboundHandlerAdapter implements IZkChildListener, IZkDataListener{
 
-	@Setter 
+    @Setter
 	private int maxReconnCount = 5; //最大重连次数
-	
+
 	@Setter
 	private int reconnInteval = 1000; //重连间隔
-	
-	private String zkBasePath;	
+
+    private String zkBasePath;
 	private ZkClient zkclient;
 	private EventLoopGroup workerGroup;
 	private Bootstrap clientbootstrap;
 	private volatile Map<String, Channel> channelMap = new HashMap<>(); // remote channel address ----> channel
 	private volatile Map<String, Set<String>> routerMap = new HashMap<>(); // remote channel address ----> key set
 	private volatile Map<String, Channel> key2channel = new HashMap<>();  // key------>channel
-	private int msgNum = 0;
 	private ExecutorService executorService = Executors.newSingleThreadExecutor();
-	
+
 	@Setter
 	private IPubHandler pubHandler;
-	
-	
-	public Subscriber(ZkClient zkclient, String zkBasePath)
+
+
+    public Subscriber(ZkClient zkclient, String zkBasePath)
 	{
 		this.zkclient = zkclient;
 		this.zkBasePath = zkBasePath;
 	}
-	
-	
-	public void init()
+
+
+    public void init()
 	{
 		if(!zkclient.exists(zkBasePath))
 		{
 			zkclient.createPersistent(zkBasePath);
 		}
-		
+
 		workerGroup = new NioEventLoopGroup(1, new DefaultThreadFactory("Subscriber-Worker"));
 		clientbootstrap = new Bootstrap();
 		clientbootstrap.group(workerGroup).channel(NioSocketChannel.class)
-        .option(ChannelOption.TCP_NODELAY, true)  
+                .option(ChannelOption.TCP_NODELAY, true)
         .handler(new SubscriberInitializer(this));
 		zkclient.subscribeChildChanges(zkBasePath, this);
 		List<String> children = zkclient.getChildren(zkBasePath);
@@ -94,7 +79,7 @@ public class Subscriber extends ChannelInboundHandlerAdapter implements IZkChild
 
 
 	@Override
-	public void handleChildChange(String parentPath, List<String> currentChilds) throws Exception 
+    public void handleChildChange(String parentPath, List<String> currentChilds) throws Exception
 	{
 		log.info("handleChildChange, parentPath:{}, currentChilds:{}", parentPath, currentChilds);
 		Set<String> toDel = new HashSet<>();
@@ -127,8 +112,8 @@ public class Subscriber extends ChannelInboundHandlerAdapter implements IZkChild
 			}
 		}
 	}
-	
-	private Channel connect(String addr)
+
+    private Channel connect(String addr)
 	{
 		List<String> arr = Splitter.on(":").splitToList(addr);
 		try {
@@ -143,8 +128,8 @@ public class Subscriber extends ChannelInboundHandlerAdapter implements IZkChild
 		}
 		return null;
 	}
-	
-	private void checkFailedSubs()
+
+    private void checkFailedSubs()
 	{
 		for(String k: key2channel.keySet())
 		{
@@ -182,22 +167,22 @@ public class Subscriber extends ChannelInboundHandlerAdapter implements IZkChild
 		String addr = StringUtils.substringAfterLast(dataPath, "/");
 		routerMap.remove(addr);
 	}
-	
-	public void subscribe(String key)
+
+    public void subscribe(String key)
 	{
 		log.info("尝试订阅数据, key:{}", key);
 		List<String> existingList = new ArrayList<>();
 		int min = Integer.MAX_VALUE;
 		String idlePub = null;
-		
-		int existingMin = Integer.MAX_VALUE;
+
+        int existingMin = Integer.MAX_VALUE;
 		String existingIdlePub = null;
-		
-		List<String> addrs = Lists.newArrayList(routerMap.keySet());
-		
-		Collections.shuffle(addrs);
-		
-		for(String addr: addrs)
+
+        List<String> addrs = Lists.newArrayList(routerMap.keySet());
+
+        Collections.shuffle(addrs);
+
+        for (String addr : addrs)
 		{
 			Set<String> keys = routerMap.get(addr);
 			if(keys.contains(key))
@@ -232,27 +217,33 @@ public class Subscriber extends ChannelInboundHandlerAdapter implements IZkChild
 			channel.writeAndFlush(sub);
 			key2channel.put(key, channel);
 			log.info("向{}订阅数据:{}", channel.remoteAddress(), key);
-		}
-		else 
+        } else
 		{
 			key2channel.put(key, null); //暂时无法找到pub
 			log.error("没有pub可订阅!");
 		}
 	}
-	
-	public void close()
+
+    public void close()
 	{
 		if(workerGroup != null)
 		{
 			workerGroup.shutdownGracefully();
 		}
-	}
-	
-	private void transferKeys(Channel channel)
+        /**
+         * @author yao.lai
+         * shutdown executorService
+         */
+        if (executorService != null) {
+            executorService.shutdown();
+        }
+    }
+
+    private void transferKeys(Channel channel)
 	{
 		String addr = null;
-		
-		for(Entry<String, Channel> entry: channelMap.entrySet())
+
+        for (Entry<String, Channel> entry : channelMap.entrySet())
 		{
 			if(entry.getValue() == channel)
 			{
@@ -260,14 +251,14 @@ public class Subscriber extends ChannelInboundHandlerAdapter implements IZkChild
 				break;
 			}
 		}
-		
-		if(addr != null)
+
+        if (addr != null)
 		{
 			channelMap.remove(addr);
-			routerMap.remove(addr);	
-		}
-		
-		Set<String> keys = new HashSet<>();
+            routerMap.remove(addr);
+        }
+
+        Set<String> keys = new HashSet<>();
 		for(Entry<String, Channel> entry: key2channel.entrySet())
 		{
 			if(entry.getValue() == channel)
@@ -284,13 +275,13 @@ public class Subscriber extends ChannelInboundHandlerAdapter implements IZkChild
 			}
 		}
 	}
-	
-	@Override
+
+    @Override
     public void channelInactive(ChannelHandlerContext ctx) throws Exception {
-		
-		String remote = ctx.channel().remoteAddress().toString().substring(1);
-		
-		Set<String> setNullKeys = new HashSet<>();
+
+        String remote = ctx.channel().remoteAddress().toString().substring(1);
+
+        Set<String> setNullKeys = new HashSet<>();
 		for(String k : key2channel.keySet())
 		{
 			if(ctx.channel() == key2channel.get(k) )
@@ -298,8 +289,8 @@ public class Subscriber extends ChannelInboundHandlerAdapter implements IZkChild
 				setNullKeys.add(k);
 			}
 		}
-		
-		executorService.execute(new Runnable() {
+
+        executorService.execute(new Runnable() {
 
 			@Override
 			public void run() {
@@ -323,11 +314,11 @@ public class Subscriber extends ChannelInboundHandlerAdapter implements IZkChild
 				transferKeys(ctx.channel());
 			}
 		});
-		
+
 //		transferKeys(ctx.channel());
     }
-	
-	public void unsubscribe(String key)
+
+    public void unsubscribe(String key)
 	{
 		log.info("尝试取消订阅数据, key:{}", key);
 		Channel channel = key2channel.get(key);
@@ -339,16 +330,20 @@ public class Subscriber extends ChannelInboundHandlerAdapter implements IZkChild
 			log.info("向{}取消订阅数据:{}", channel.remoteAddress(), key);
 		}
 	}
-	
-	@Override
+
+    @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
-		Message message = (Message)msg;
-		if(message  instanceof PubMessage)
-		{
-			PubMessage pub = (PubMessage)message;
-			log.info("收到订阅的数据, key:{}, value:{}, remote:{}, msgNum:{}"
-					, pub.getKey(), new String(pub.getData()), ctx.channel().remoteAddress(), ++ msgNum);
-			
+        if (msg instanceof PubMessage) {
+            PubMessage pub = (PubMessage) msg;
+            /**
+             * @author yao.lai
+             * remove msgNum statistic to avoid int parameter overflow
+             */
+            if (log.isDebugEnabled()) {
+                log.debug("receive subscribe data,key:{}, remoteAddress:{}"
+                        , pub.getKey(), ctx.channel().remoteAddress());
+
+            }
 			if(pubHandler != null)
 			{
 				pubHandler.handlePubMessage(pub);
