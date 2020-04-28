@@ -158,7 +158,7 @@ public class Publisher{
 			if(keys.contains(key))
 			{
 				channel.writeAndFlush(pub);
-				log.info("发送publish数据, key:{}, remote:{}, msgNum: {}", key, channel.remoteAddress(), ++ msgNum);
+				log.info("发送publish数据, key:{}, ch:{}, msgNum: {}", key, channel, ++ msgNum);
 			}
 		}
 	}

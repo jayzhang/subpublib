@@ -40,7 +40,7 @@ public class PublisherChannelHandler extends ChannelInboundHandlerAdapter{
 	@Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception 
 	{
-		log.info("收到消息:{}, remote:{}", msg, ctx.channel().remoteAddress());
+		log.info("收到消息:{}, ch:{}", msg, ctx.channel());
         Message message = (Message) msg;
         if(message instanceof SubMessage)
         {

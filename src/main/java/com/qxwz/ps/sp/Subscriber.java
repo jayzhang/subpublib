@@ -216,7 +216,7 @@ public class Subscriber extends ChannelInboundHandlerAdapter implements IZkChild
 			SubMessage sub = new SubMessage(key);
 			channel.writeAndFlush(sub);
 			key2channel.put(key, channel);
-			log.info("向{}订阅数据:{}", channel.remoteAddress(), key);
+			log.info("通过{}订阅数据:{}", channel, key);
         } else
 		{
 			key2channel.put(key, null); //暂时无法找到pub
