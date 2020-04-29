@@ -46,10 +46,14 @@ public class Subscriber extends ChannelInboundHandlerAdapter implements IZkChild
 	private volatile Map<String, Channel> channelMap = new HashMap<>(); // remote channel address ----> channel
 	private volatile Map<String, Set<String>> routerMap = new HashMap<>(); // remote channel address ----> key set
 	private volatile Map<String, Channel> key2channel = new HashMap<>();  // key------>channel
+	private volatile Set<String> pendingKeys = new HashSet<>(); //暂时订阅不上的key 
 	private ExecutorService executorService = Executors.newSingleThreadExecutor();
 
 	@Setter
 	private IPubHandler pubHandler;
+	
+	@Setter
+	private String name = "";
 
 
     public Subscriber(ZkClient zkclient, String zkBasePath)
@@ -112,6 +116,17 @@ public class Subscriber extends ChannelInboundHandlerAdapter implements IZkChild
 					Object data = zkclient.readData(dataPath, true);
 					handleDataChange(dataPath, data); //初始化读取路由表
 					log.info("新的pub上线，subscribeDataChanges, path:{}", parentPath + "/" + child);
+					Set<String> succKeys = new HashSet<>();
+					for(String k: pendingKeys)
+					{
+						boolean succ = subscribe(k);
+						if(succ)
+						{
+							succKeys.add(k);
+						}
+					}
+					pendingKeys.removeAll(succKeys);
+					log.info("pending keys:{}",pendingKeys );
 				}
 			}
 		}
@@ -172,20 +187,16 @@ public class Subscriber extends ChannelInboundHandlerAdapter implements IZkChild
 		routerMap.remove(addr);
 	}
 
-    public void subscribe(String key)
+    public synchronized boolean subscribe(String key)
 	{
 		log.info("尝试订阅数据, key:{}", key);
 		List<String> existingList = new ArrayList<>();
 		int min = Integer.MAX_VALUE;
 		String idlePub = null;
-
         int existingMin = Integer.MAX_VALUE;
 		String existingIdlePub = null;
-
         List<String> addrs = Lists.newArrayList(routerMap.keySet());
-
         Collections.shuffle(addrs);
-
         for (String addr : addrs)
 		{
 			Set<String> keys = routerMap.get(addr);
@@ -222,13 +233,18 @@ public class Subscriber extends ChannelInboundHandlerAdapter implements IZkChild
 			}
 
 			SubMessage sub = new SubMessage(key);
+			sub.setSubscriberName(name);
 			channel.writeAndFlush(sub);
 			key2channel.put(key, channel);
-			log.info("向{}订阅数据:{}", channel.remoteAddress(), key);
-        } else
+			log.info("通过{}订阅数据:{}", channel, key);
+			return true;
+        } 
+		else
 		{
 			key2channel.put(key, null); //暂时无法找到pub
-			log.error("没有pub可订阅!");
+			pendingKeys.add(key);
+			log.error("没有pub可订阅， 当前pending的keys:{}", pendingKeys);
+			return false;
 		}
 	}
 
@@ -337,21 +353,16 @@ public class Subscriber extends ChannelInboundHandlerAdapter implements IZkChild
 			key2channel.remove(key);
 			log.info("向{}取消订阅数据:{}", channel.remoteAddress(), key);
 		}
+		pendingKeys.remove(key);
+		log.info("pendingKeys:{}", pendingKeys);
 	}
 
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+    	
         if (msg instanceof PubMessage) {
             PubMessage pub = (PubMessage) msg;
-            /**
-             * @author yao.lai
-             * remove msgNum statistic to avoid int parameter overflow
-             */
-            if (log.isDebugEnabled()) {
-                log.debug("receive subscribe data,key:{}, remoteAddress:{}"
-                        , pub.getKey(), ctx.channel().remoteAddress());
-
-            }
+            log.debug("订阅者:{} 收到来自发布者:{} 的数据: {}, ch:{}", name, pub.getPublisherName(), msg, ctx.channel());
 			if(pubHandler != null)
 			{
 				pubHandler.handlePubMessage(pub);

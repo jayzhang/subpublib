@@ -57,6 +57,9 @@ public class Publisher{
 	
 	private String mypath;
 	private int msgNum = 0;
+	
+	@Setter
+	private String name;
 
 	public Publisher(ZkClient zkclient, String zkBasePath)
 	{
@@ -134,7 +137,7 @@ public class Publisher{
 	///模拟发送数据
 	synchronized public void pubdataMock()
 	{
-		Set<String> allKeys = new HashSet<>();
+		Set<String> allKeys = new TreeSet<>();
 		for(Channel channel: channels)
 		{
 			Set<String> keys = channel.pipeline().get(PublisherChannelHandler.class).keys;
@@ -149,6 +152,7 @@ public class Publisher{
 	synchronized public void publish(String key, byte[] data)
 	{
 		PubMessage pub = new PubMessage(key, data);
+		pub.setPublisherName(name);
 		for(Channel channel: channels)
 		{
 			if (channel==null) return;
