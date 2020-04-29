@@ -1,6 +1,7 @@
 package subpublib;
 
 import org.I0Itec.zkclient.ZkClient;
+import org.junit.Test;
 
 import com.qxwz.ps.sp.ISubHandler;
 import com.qxwz.ps.sp.Publisher;
@@ -12,46 +13,68 @@ import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 public class PublishTest {
+	
+	ZkClient zkclient = new ZkClient("172.16.200.1:2181");
+	
+	ISubHandler handler = new ISubHandler() {
 
-	public static void main(String[] args) throws InterruptedException {
-		
-		ZkClient zkclient = new ZkClient("172.16.200.1:2181");
-		
-		ISubHandler handler = new ISubHandler() {
+		@Override
+		public void handleSubMessage(SubMessage msg) {
+			log.info("订阅: {}", msg);
+		}
 
-			@Override
-			public void handleSubMessage(SubMessage msg) {
-				log.info("订阅: {}", msg);
-			}
-
-			@Override
-			public void handleUnsubMessage(UnsubMessage msg) {
-				log.info("取消订阅: {}", msg);
-			}
-		};
-		
-//		Publisher pub1 = new Publisher(zkclient, "/subpub_test");
-//		pub1.setPort(29001);
-//		pub1.setSubHandler(handler);
-//		pub1.init();
-		
-		Publisher pub2 = new Publisher(zkclient, "/subpub_test");
-		pub2.setPort(29002);
-		pub2.setSubHandler(handler);
-		pub2.init();
-//		
-//		Publisher pub3 = new Publisher(zkclient, "/subpub_test");
-//		pub3.setPort(29003);
-//		pub3.setSubHandler(handler);
-//		pub3.init();
+		@Override
+		public void handleUnsubMessage(UnsubMessage msg) {
+			log.info("取消订阅: {}", msg);
+		}
+	};
+	
+	@Test 
+	public void pub1() throws InterruptedException
+	{
+		Publisher pub = new Publisher(zkclient, "/subpub_test");
+		pub.setPort(29001);
+		pub.setName("pub1");
+		pub.setSubHandler(handler);
+		pub.init();
 		
 		while(true)
 		{
-//			pub1.pubdataMock();
-			pub2.pubdataMock();
-//			pub3.pubdataMock();
+			pub.pubdataMock();
 			Thread.sleep(1000);
 		}
 	}
-
+	
+	@Test 
+	public void pub2() throws InterruptedException
+	{
+		Publisher pub = new Publisher(zkclient, "/subpub_test");
+		pub.setPort(29002);
+		pub.setName("pub2");
+		pub.setSubHandler(handler);
+		pub.init();
+		
+		while(true)
+		{
+			pub.pubdataMock();
+			Thread.sleep(1000);
+		}
+	}
+	
+	@Test 
+	public void pub3() throws InterruptedException
+	{
+		Publisher pub = new Publisher(zkclient, "/subpub_test");
+		pub.setPort(29003);
+		pub.setName("pub3");
+		pub.setSubHandler(handler);
+		pub.init();
+		
+		while(true)
+		{
+			pub.pubdataMock();
+			Thread.sleep(1000);
+		}
+	}
+	
 }
