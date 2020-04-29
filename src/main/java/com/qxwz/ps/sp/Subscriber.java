@@ -35,6 +35,10 @@ public class Subscriber extends ChannelInboundHandlerAdapter implements IZkChild
 	@Setter
 	private int reconnInteval = 1000; //重连间隔
 
+	@Setter
+	private int workerThreadNum = Runtime.getRuntime().availableProcessors();
+
+
     private String zkBasePath;
 	private ZkClient zkclient;
 	private EventLoopGroup workerGroup;
@@ -59,10 +63,10 @@ public class Subscriber extends ChannelInboundHandlerAdapter implements IZkChild
 	{
 		if(!zkclient.exists(zkBasePath))
 		{
-			zkclient.createPersistent(zkBasePath);
+			zkclient.createPersistent(zkBasePath,true);
 		}
 
-		workerGroup = new NioEventLoopGroup(1, new DefaultThreadFactory("Subscriber-Worker"));
+		workerGroup = new NioEventLoopGroup(workerThreadNum, new DefaultThreadFactory("Subscriber-Worker"));
 		clientbootstrap = new Bootstrap();
 		clientbootstrap.group(workerGroup).channel(NioSocketChannel.class)
                 .option(ChannelOption.TCP_NODELAY, true)
@@ -213,6 +217,10 @@ public class Subscriber extends ChannelInboundHandlerAdapter implements IZkChild
 		}
 		if(channel != null)
 		{
+			if (!channel.isWritable()) {
+				log.warn("channel:{} can not write message to channelBuffer",channel);
+			}
+
 			SubMessage sub = new SubMessage(key);
 			channel.writeAndFlush(sub);
 			key2channel.put(key, channel);

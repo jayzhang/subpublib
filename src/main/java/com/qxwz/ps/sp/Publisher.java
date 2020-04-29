@@ -3,7 +3,12 @@ package com.qxwz.ps.sp;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
+import io.netty.channel.ChannelFuture;
 import org.I0Itec.zkclient.ZkClient;
 import org.apache.commons.lang.StringUtils;
 
@@ -35,7 +40,11 @@ public class Publisher{
 	private ZkClient zkclient;
 	@Setter
 	private int syncZkInterval = 10;//检查并同步订阅关系到ZK的频率，单位秒
-	
+	@Setter
+	private int bossThreadNum = 1;
+	@Setter
+	private int workerThreadNum = 0; //use netty default workerThreadNum NCPU<<1
+
 	@Setter @Getter
 	private ISubHandler subHandler;
 	
@@ -44,6 +53,7 @@ public class Publisher{
 	
 	private volatile Set<String> keys = new TreeSet<>(); // 订阅的所有key的集合
 	private volatile Set<Channel> channels = new HashSet<>();
+	private ScheduledExecutorService executorService = Executors.newSingleThreadScheduledExecutor(new DefaultThreadFactory("Publisher-SubKeysSyncer-"));
 	
 	private String mypath;
 	private int msgNum = 0;
@@ -56,13 +66,14 @@ public class Publisher{
 	
 	public void init()
 	{
+		log.info("start to init Pubsublib Publisher.....");
 		if(!zkclient.exists(zkBasePath))
 		{
-			zkclient.createPersistent(zkBasePath);
+			zkclient.createPersistent(zkBasePath,true);
 		}
 		
-		bossGroup = new NioEventLoopGroup(1, new DefaultThreadFactory("Publisher-Boss")); 
-		workerGroup = new NioEventLoopGroup(0, new DefaultThreadFactory("Publisher-Worker"));
+		bossGroup = new NioEventLoopGroup(bossThreadNum, new DefaultThreadFactory("Publisher-Boss"));
+		workerGroup = new NioEventLoopGroup(workerThreadNum, new DefaultThreadFactory("Publisher-Worker"));
 		ServerBootstrap b = new ServerBootstrap();
 		
 		String localhost = NetUtils.getLocalHost();
@@ -74,37 +85,23 @@ public class Publisher{
                 .option(ChannelOption.SO_BACKLOG, 1024)
                 .childOption(ChannelOption.TCP_NODELAY, true)  
                 .childHandler(new PublisherInitializer(this));
-        try {
-			b.bind(localhost, port).sync();
-			 log.info("绑定：{}:{}", host, port);
-		} catch (InterruptedException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-       
-        zkclient.delete(mypath);
-		zkclient.createEphemeral(mypath);
-		log.info("createEphemeral:{}", mypath);
-		
-		
-		Thread t = new Thread(new Runnable() {
-			@Override
-			public void run() 
-			{	
-				while(true)
-				{
-					checkKeysChange();
-					try {
-						Thread.sleep(syncZkInterval * 1000);
-					} catch (InterruptedException e) {
-						// TODO Auto-generated catch block
-						e.printStackTrace();
-					}
+
+		b.bind(localhost, port).addListener(future -> {
+			ChannelFuture channelFuture = (ChannelFuture) future;
+			if (channelFuture.isSuccess()) {
+				log.info("Publisher start with bossThreadNum:{} workerThreadNum:{} bind port:{}",bossThreadNum,workerThreadNum,port);
+				zkclient.delete(mypath);
+				zkclient.createEphemeral(mypath);
+				log.info("createEphemeral:{}", mypath);
+				executorService.scheduleWithFixedDelay(()->checkKeysChange(),syncZkInterval,syncZkInterval, TimeUnit.SECONDS);
+				log.info("Publisher init success");
+			}else {
+				log.warn("Publisher start failed.....");
+				if (channelFuture.cause()!=null) {
+					log.error("Publisher start failed, cause:{}", channelFuture.cause());
 				}
 			}
-		}, "SubKeysSyncer");
-       
-		t.start();
+		});
 	}
 	
 	public void checkKeysChange()
@@ -154,11 +151,19 @@ public class Publisher{
 		PubMessage pub = new PubMessage(key, data);
 		for(Channel channel: channels)
 		{
+			if (channel==null) return;
 			Set<String> keys = channel.pipeline().get(PublisherChannelHandler.class).keys;
 			if(keys.contains(key))
 			{
-				channel.writeAndFlush(pub);
-				log.info("发送publish数据, key:{}, remote:{}, msgNum: {}", key, channel.remoteAddress(), ++ msgNum);
+				if(channel.isWritable()) {
+					channel.writeAndFlush(pub);
+					log.info("发送publish数据, key:{}, remote:{}, msgNum: {}", key, channel.remoteAddress(), ++msgNum);
+				}else {
+					Integer currentHighWaterMark = channel.config().getWriteBufferHighWaterMark();
+					Integer currentSendBuf = channel.config().getOption(ChannelOption.SO_SNDBUF);
+					log.warn("channel:{} can not write message into channelBuffer" +
+							",currentHighWaterMark:{},currentSendBuf:{}",channel,currentHighWaterMark,currentSendBuf);
+				}
 			}
 		}
 	}
