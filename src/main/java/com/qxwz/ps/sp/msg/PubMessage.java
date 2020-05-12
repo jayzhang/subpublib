@@ -12,7 +12,7 @@ import lombok.ToString;
 @ToString
 public class PubMessage extends Message{
 
-	private String publisherName;
+//	private String publisherName;
 	private String key;
 	private byte[] data;
 	
@@ -33,16 +33,16 @@ public class PubMessage extends Message{
 	@Override
 	public void encodeBody(ByteBuf buf) {
 		
-		if(publisherName != null)
-		{
-			int length = publisherName.length();
-			buf.writeInt(length);
-			buf.writeCharSequence(publisherName, Charset.defaultCharset());
-		}
-		else 
-		{
-			buf.writeInt(0);
-		}
+//		if(publisherName != null)
+//		{
+//			int length = publisherName.length();
+//			buf.writeInt(length);
+//			buf.writeCharSequence(publisherName, Charset.defaultCharset());
+//		}
+//		else 
+//		{
+//			buf.writeInt(0);
+//		}
 		
 		if(key != null)
 		{
@@ -71,12 +71,12 @@ public class PubMessage extends Message{
 	public void decodeBody(ByteBuf buf) {
 		
 		int length = buf.readInt();
-		if(length > 0)
-		{
-			publisherName = (String) buf.readCharSequence(length, Charset.defaultCharset());
-		}
-		
-		length = buf.readInt();
+//		if(length > 0)
+//		{
+//			publisherName = (String) buf.readCharSequence(length, Charset.defaultCharset());
+//		}
+//		
+//		length = buf.readInt();
 		if(length > 0)
 		{
 			key = (String) buf.readCharSequence(length, Charset.defaultCharset());

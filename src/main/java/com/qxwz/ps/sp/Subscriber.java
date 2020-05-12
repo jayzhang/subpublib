@@ -52,8 +52,8 @@ public class Subscriber extends ChannelInboundHandlerAdapter implements IZkChild
 	@Setter
 	private IPubHandler pubHandler;
 	
-	@Setter
-	private String name = "";
+//	@Setter
+//	private String name = "";
 
 
     public Subscriber(ZkClient zkclient, String zkBasePath)
@@ -106,16 +106,17 @@ public class Subscriber extends ChannelInboundHandlerAdapter implements IZkChild
 		}
 		for(String child: currentChilds )
 		{
-			if(!channelMap.containsKey(child))
+			if(!channelMap.containsKey(child))  //有新的publisher上线
 			{
 				Channel channel = connect(child);
 				if(channel != null)
 				{
 					String dataPath = parentPath + "/" + child;
-					zkclient.subscribeDataChanges(dataPath, this);  //订阅数据变化
+					zkclient.subscribeDataChanges(dataPath, this);  //订阅新的publisher所发布的key数据
 					Object data = zkclient.readData(dataPath, true);
 					handleDataChange(dataPath, data); //初始化读取路由表
 					log.info("新的pub上线，subscribeDataChanges, path:{}", parentPath + "/" + child);
+					//一旦有新的publisher，则将未订阅成功的key重新发起订阅
 					Set<String> succKeys = new HashSet<>();
 					for(String k: pendingKeys)
 					{
@@ -233,7 +234,7 @@ public class Subscriber extends ChannelInboundHandlerAdapter implements IZkChild
 			}
 
 			SubMessage sub = new SubMessage(key);
-			sub.setSubscriberName(name);
+//			sub.setSubscriberName(name);
 			channel.writeAndFlush(sub);
 			key2channel.put(key, channel);
 			log.info("通过{}订阅数据:{}", channel, key);
@@ -362,7 +363,7 @@ public class Subscriber extends ChannelInboundHandlerAdapter implements IZkChild
     	
         if (msg instanceof PubMessage) {
             PubMessage pub = (PubMessage) msg;
-            log.debug("订阅者:{} 收到来自发布者:{} 的数据: {}, ch:{}", name, pub.getPublisherName(), msg, ctx.channel());
+            log.debug("订阅到数据:{}, ch:{}", msg, ctx.channel());
 			if(pubHandler != null)
 			{
 				pubHandler.handlePubMessage(pub);
