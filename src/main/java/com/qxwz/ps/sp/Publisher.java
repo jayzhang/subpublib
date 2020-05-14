@@ -56,7 +56,6 @@ public class Publisher{
 	private ScheduledExecutorService executorService = Executors.newSingleThreadScheduledExecutor(new DefaultThreadFactory("Publisher-SubKeysSyncer-"));
 	
 	private String mypath;
-	private int msgNum = 0;
 	
 	@Setter
 	private String name;
@@ -161,7 +160,7 @@ public class Publisher{
 			{
 				if(channel.isWritable()) {
 					channel.writeAndFlush(pub);
-					log.info("发送publish数据, key:{}, remote:{}, msgNum: {}", key, channel.remoteAddress(), ++msgNum);
+					log.info("发送publish数据, key:{}, remote:{}", key, channel.remoteAddress());
 				}else {
 					Integer currentHighWaterMark = channel.config().getWriteBufferHighWaterMark();
 					Integer currentSendBuf = channel.config().getOption(ChannelOption.SO_SNDBUF);
