@@ -3,12 +3,10 @@ package com.qxwz.ps.sp;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.TreeSet;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-import io.netty.channel.ChannelFuture;
 import org.I0Itec.zkclient.ZkClient;
 import org.apache.commons.lang.StringUtils;
 
@@ -17,6 +15,7 @@ import com.qxwz.ps.sp.msg.PubMessage;
 
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.Channel;
+import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
@@ -66,7 +65,7 @@ public class Publisher{
 		this.zkBasePath = zkBasePath;
 	}
 	
-	public void init()
+	synchronized public void init()
 	{
 		log.info("start to init Pubsublib Publisher.....");
 		if(!zkclient.exists(zkBasePath))
@@ -124,17 +123,17 @@ public class Publisher{
 	}
 	
 
-	synchronized public void addChannel(Channel channel)
+	public void addChannel(Channel channel)
 	{
 		channels.add(channel);
 	}
-	synchronized public void removeChannel(Channel channel)
+	public void removeChannel(Channel channel)
 	{
 		channels.remove(channel);
 	}
 	
 	///模拟发送数据
-	synchronized public void pubdataMock()
+	public void pubdataMock()
 	{
 		Set<String> allKeys = new TreeSet<>();
 		for(Channel channel: channels)
@@ -148,10 +147,10 @@ public class Publisher{
 		}
 	}
 	
-	synchronized public void publish(String key, byte[] data)
+	public void publish(String key, byte[] data)
 	{
 		PubMessage pub = new PubMessage(key, data);
-		pub.setPublisherName(name);
+//		pub.setPublisherName(name);
 		for(Channel channel: channels)
 		{
 			if (channel==null) return;

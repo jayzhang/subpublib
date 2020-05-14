@@ -29,7 +29,7 @@ public class SubscriberTest {
 		Subscriber sub1 = new Subscriber(zkclient, "/subpub_test");
 		sub1.setPubHandler(handler);
 		sub1.init();
-		sub1.setName("sub1");
+//		sub1.setName("sub1");
 		for(int i = 0; i < 10; ++ i)
 		{
 			sub1.subscribe(i + "");
@@ -58,7 +58,7 @@ public class SubscriberTest {
 		Subscriber sub2 = new Subscriber(zkclient, "/subpub_test");
 		sub2.setPubHandler(handler);
 		sub2.init();
-		sub2.setName("sub2");
+//		sub2.setName("sub2");
 		for(int i = 5; i < 15; ++ i)
 		{
 			sub2.subscribe(i + "");
@@ -80,7 +80,7 @@ public class SubscriberTest {
 		Subscriber sub3 = new Subscriber(zkclient, "/subpub_test");
 		sub3.setPubHandler(handler);
 		sub3.init();
-		sub3.setName("sub3");
+//		sub3.setName("sub3");
 		for(int i = 10; i < 20; ++ i)
 		{
 			sub3.subscribe(i + "");

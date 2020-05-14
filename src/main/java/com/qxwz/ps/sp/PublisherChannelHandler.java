@@ -9,8 +9,6 @@ import com.qxwz.ps.sp.msg.UnsubMessage;
 
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
-import lombok.Getter;
-import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 
 
@@ -19,8 +17,8 @@ public class PublisherChannelHandler extends ChannelInboundHandlerAdapter{
 
 	private Publisher publisher;
 	
-	@Setter @Getter
-	private String subsriberName;
+//	@Setter @Getter
+//	private String subsriberName;
 	
 	public volatile Set<String> keys = new HashSet<>(); // 订阅的所有key的集合
 	
@@ -50,7 +48,7 @@ public class PublisherChannelHandler extends ChannelInboundHandlerAdapter{
         if(message instanceof SubMessage)
         {
         	SubMessage sub = (SubMessage)message;
-        	this.subsriberName = sub.getSubscriberName();
+//        	this.subsriberName = sub.getSubscriberName();
         	String key = sub.getKey();
         	if(key != null)
         	{
