@@ -17,6 +17,9 @@ public class PublisherChannelHandler extends ChannelInboundHandlerAdapter{
 
 	private Publisher publisher;
 	
+//	@Setter @Getter
+//	private String subsriberName;
+	
 	public volatile Set<String> keys = new HashSet<>(); // 订阅的所有key的集合
 	
 	public PublisherChannelHandler(Publisher publisher)
@@ -40,11 +43,12 @@ public class PublisherChannelHandler extends ChannelInboundHandlerAdapter{
 	@Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception 
 	{
-		log.info("收到消息:{}, remote:{}", msg, ctx.channel().remoteAddress());
+		log.info("收到消息:{}, ch:{}, 更新前被订阅的keys:{}", msg, ctx.channel(), keys);
         Message message = (Message) msg;
         if(message instanceof SubMessage)
         {
         	SubMessage sub = (SubMessage)message;
+//        	this.subsriberName = sub.getSubscriberName();
         	String key = sub.getKey();
         	if(key != null)
         	{
@@ -71,6 +75,7 @@ public class PublisherChannelHandler extends ChannelInboundHandlerAdapter{
         		}
         	}
         }
+        log.info("更新后的keys:{}", keys);
     }
 	
 }

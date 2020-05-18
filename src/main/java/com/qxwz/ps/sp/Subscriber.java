@@ -35,6 +35,10 @@ public class Subscriber extends ChannelInboundHandlerAdapter implements IZkChild
 	@Setter
 	private int reconnInteval = 1000; //重连间隔
 
+	@Setter
+	private int workerThreadNum = Runtime.getRuntime().availableProcessors();
+
+
     private String zkBasePath;
 	private ZkClient zkclient;
 	private EventLoopGroup workerGroup;
@@ -42,10 +46,14 @@ public class Subscriber extends ChannelInboundHandlerAdapter implements IZkChild
 	private volatile Map<String, Channel> channelMap = new HashMap<>(); // remote channel address ----> channel
 	private volatile Map<String, Set<String>> routerMap = new HashMap<>(); // remote channel address ----> key set
 	private volatile Map<String, Channel> key2channel = new HashMap<>();  // key------>channel
+	private volatile Set<String> pendingKeys = new HashSet<>(); //暂时订阅不上的key 
 	private ExecutorService executorService = Executors.newSingleThreadExecutor();
 
 	@Setter
 	private IPubHandler pubHandler;
+	
+//	@Setter
+//	private String name = "";
 
 
     public Subscriber(ZkClient zkclient, String zkBasePath)
@@ -59,10 +67,10 @@ public class Subscriber extends ChannelInboundHandlerAdapter implements IZkChild
 	{
 		if(!zkclient.exists(zkBasePath))
 		{
-			zkclient.createPersistent(zkBasePath);
+			zkclient.createPersistent(zkBasePath,true);
 		}
 
-		workerGroup = new NioEventLoopGroup(1, new DefaultThreadFactory("Subscriber-Worker"));
+		workerGroup = new NioEventLoopGroup(workerThreadNum, new DefaultThreadFactory("Subscriber-Worker"));
 		clientbootstrap = new Bootstrap();
 		clientbootstrap.group(workerGroup).channel(NioSocketChannel.class)
                 .option(ChannelOption.TCP_NODELAY, true)
@@ -98,16 +106,28 @@ public class Subscriber extends ChannelInboundHandlerAdapter implements IZkChild
 		}
 		for(String child: currentChilds )
 		{
-			if(!channelMap.containsKey(child))
+			if(!channelMap.containsKey(child))  //有新的publisher上线
 			{
 				Channel channel = connect(child);
 				if(channel != null)
 				{
 					String dataPath = parentPath + "/" + child;
-					zkclient.subscribeDataChanges(dataPath, this);  //订阅数据变化
+					zkclient.subscribeDataChanges(dataPath, this);  //订阅新的publisher所发布的key数据
 					Object data = zkclient.readData(dataPath, true);
 					handleDataChange(dataPath, data); //初始化读取路由表
 					log.info("新的pub上线，subscribeDataChanges, path:{}", parentPath + "/" + child);
+					//一旦有新的publisher，则将未订阅成功的key重新发起订阅
+					Set<String> succKeys = new HashSet<>();
+					for(String k: pendingKeys)
+					{
+						boolean succ = subscribe(k);
+						if(succ)
+						{
+							succKeys.add(k);
+						}
+					}
+					pendingKeys.removeAll(succKeys);
+					log.info("pending keys:{}",pendingKeys );
 				}
 			}
 		}
@@ -168,20 +188,16 @@ public class Subscriber extends ChannelInboundHandlerAdapter implements IZkChild
 		routerMap.remove(addr);
 	}
 
-    public void subscribe(String key)
+    public synchronized boolean subscribe(String key)
 	{
 		log.info("尝试订阅数据, key:{}", key);
 		List<String> existingList = new ArrayList<>();
 		int min = Integer.MAX_VALUE;
 		String idlePub = null;
-
         int existingMin = Integer.MAX_VALUE;
 		String existingIdlePub = null;
-
         List<String> addrs = Lists.newArrayList(routerMap.keySet());
-
         Collections.shuffle(addrs);
-
         for (String addr : addrs)
 		{
 			Set<String> keys = routerMap.get(addr);
@@ -213,14 +229,23 @@ public class Subscriber extends ChannelInboundHandlerAdapter implements IZkChild
 		}
 		if(channel != null)
 		{
+			if (!channel.isWritable()) {
+				log.warn("channel:{} can not write message to channelBuffer",channel);
+			}
+
 			SubMessage sub = new SubMessage(key);
+//			sub.setSubscriberName(name);
 			channel.writeAndFlush(sub);
 			key2channel.put(key, channel);
-			log.info("向{}订阅数据:{}", channel.remoteAddress(), key);
-        } else
+			log.info("通过{}订阅数据:{}", channel, key);
+			return true;
+        } 
+		else
 		{
 			key2channel.put(key, null); //暂时无法找到pub
-			log.error("没有pub可订阅!");
+			pendingKeys.add(key);
+			log.error("没有pub可订阅， 当前pending的keys:{}", pendingKeys);
+			return false;
 		}
 	}
 
@@ -329,21 +354,16 @@ public class Subscriber extends ChannelInboundHandlerAdapter implements IZkChild
 			key2channel.remove(key);
 			log.info("向{}取消订阅数据:{}", channel.remoteAddress(), key);
 		}
+		pendingKeys.remove(key);
+		log.info("pendingKeys:{}", pendingKeys);
 	}
 
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+    	
         if (msg instanceof PubMessage) {
             PubMessage pub = (PubMessage) msg;
-            /**
-             * @author yao.lai
-             * remove msgNum statistic to avoid int parameter overflow
-             */
-            if (log.isDebugEnabled()) {
-                log.debug("receive subscribe data,key:{}, remoteAddress:{}"
-                        , pub.getKey(), ctx.channel().remoteAddress());
-
-            }
+            log.debug("订阅到数据:{}, ch:{}", msg, ctx.channel());
 			if(pubHandler != null)
 			{
 				pubHandler.handlePubMessage(pub);
