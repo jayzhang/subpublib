@@ -7,6 +7,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
+import io.netty.channel.*;
 import org.I0Itec.zkclient.ZkClient;
 import org.apache.commons.lang.StringUtils;
 
@@ -14,10 +15,6 @@ import com.google.common.base.Joiner;
 import com.qxwz.ps.sp.msg.PubMessage;
 
 import io.netty.bootstrap.ServerBootstrap;
-import io.netty.channel.Channel;
-import io.netty.channel.ChannelFuture;
-import io.netty.channel.ChannelOption;
-import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.util.concurrent.DefaultThreadFactory;
@@ -43,6 +40,10 @@ public class Publisher{
 	private int bossThreadNum = 1;
 	@Setter
 	private int workerThreadNum = 0; //use netty default workerThreadNum NCPU<<1
+	@Setter
+	private int lowWriteBufferWaterMark = 32*1024;
+	@Setter
+	private int highWriteBufferWaterMark = 128*1024;
 
 	@Setter @Getter
 	private ISubHandler subHandler;
@@ -84,7 +85,8 @@ public class Publisher{
         b.group(bossGroup, workerGroup)
         		.channel(NioServerSocketChannel.class)
                 .option(ChannelOption.SO_BACKLOG, 1024)
-                .childOption(ChannelOption.TCP_NODELAY, true)  
+                .childOption(ChannelOption.TCP_NODELAY, true)
+				.childOption(ChannelOption.WRITE_BUFFER_WATER_MARK,new WriteBufferWaterMark(lowWriteBufferWaterMark,highWriteBufferWaterMark))
                 .childHandler(new PublisherInitializer(this));
 
 		b.bind(localhost, port).addListener(future -> {
