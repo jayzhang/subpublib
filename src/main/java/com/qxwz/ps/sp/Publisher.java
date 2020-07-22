@@ -7,14 +7,20 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-import io.netty.channel.*;
 import org.I0Itec.zkclient.ZkClient;
 import org.apache.commons.lang.StringUtils;
 
 import com.google.common.base.Joiner;
 import com.qxwz.ps.sp.msg.PubMessage;
+import com.qxwz.ps.sp.msg.SubMessage;
+import com.qxwz.ps.sp.msg.UnsubMessage;
 
 import io.netty.bootstrap.ServerBootstrap;
+import io.netty.channel.Channel;
+import io.netty.channel.ChannelFuture;
+import io.netty.channel.ChannelOption;
+import io.netty.channel.EventLoopGroup;
+import io.netty.channel.WriteBufferWaterMark;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.util.concurrent.DefaultThreadFactory;
@@ -112,7 +118,10 @@ public class Publisher{
 		Set<String> keys = new TreeSet<>();
 		for(Channel ch: channels)
 		{
-			keys.addAll(ch.pipeline().get(PublisherChannelHandler.class).keys);
+			if(ch.isActive())
+			{
+				keys.addAll(ch.pipeline().get(PublisherChannelHandler.class).keys);
+			}
 		}
 		String oldKeys = Joiner.on(",").join(this.keys);
 		String newKeys = Joiner.on(",").join(keys);
@@ -132,6 +141,11 @@ public class Publisher{
 	public void removeChannel(Channel channel)
 	{
 		channels.remove(channel);
+		
+		//向上层触发关闭连接的取消订阅事件
+		Set<String> keys = channel.pipeline().get(PublisherChannelHandler.class).keys;
+		log.info("尝试取消所有channel:{}订阅的keys:{}", channel, keys);
+		handleUnsubKeys(keys);
 	}
 	
 	///模拟发送数据
@@ -170,6 +184,36 @@ public class Publisher{
 				}
 			}
 		}
+	}
+	
+	public Set<String> subsbribedKeysInAllActiveChannels()
+	{
+		Set<String> keys = new HashSet<>();
+		for(Channel ch: channels)
+		{
+			if(ch.isActive())
+				keys.addAll(ch.pipeline().get(PublisherChannelHandler.class).keys);
+		}
+		return keys;
+	}
+	
+	
+	
+	public void handleUnsubKeys(Set<String> removingkeys)
+	{
+		if(subHandler != null)
+    	{
+			Set<String> subscribedKeys = subsbribedKeysInAllActiveChannels();
+			for(String k: removingkeys)
+			{
+				if(!subscribedKeys.contains(k))	//k取消订阅之后无人订阅
+				{
+					UnsubMessage unsub = new UnsubMessage();
+					unsub.setKey(k);
+					subHandler.handleUnsubMessage(unsub);
+				}
+			}
+    	}
 	}
 	
 	public void close()

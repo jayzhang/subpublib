@@ -95,4 +95,53 @@ public class SubscriberTest {
 			}
 		}
 	}
+	
+	
+	
+	@Test
+	public void sub11()
+	{
+		Subscriber sub = new Subscriber(zkclient, "/subpub_test");
+		sub.setPubHandler(handler);
+		sub.init();
+		sub.subscribe("1");
+		for(int i = 0 ; i < 20; ++ i)
+		{
+			try {
+				Thread.sleep(1000);
+			} catch (InterruptedException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+		}
+		sub.unsubscribe("1");
+		while(true)
+		{
+			try {
+				Thread.sleep(1000);
+			} catch (InterruptedException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+		}
+	}
+	
+	
+	@Test
+	public void sub22()
+	{
+		Subscriber sub = new Subscriber(zkclient, "/subpub_test");
+		sub.setPubHandler(handler);
+		sub.init();
+		sub.subscribe("1");
+		while(true)
+		{
+			try {
+				Thread.sleep(1000);
+			} catch (InterruptedException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+		}
+	}
 }

@@ -45,20 +45,28 @@ public class PublisherChannelHandler extends ChannelInboundHandlerAdapter{
 	{
 		log.info("收到消息:{}, ch:{}, 更新前被订阅的keys:{}", msg, ctx.channel(), keys);
         Message message = (Message) msg;
+        ISubHandler subHandler = publisher.getSubHandler();
         if(message instanceof SubMessage)
         {
         	SubMessage sub = (SubMessage)message;
-//        	this.subsriberName = sub.getSubscriberName();
         	String key = sub.getKey();
         	if(key != null)
         	{
         		if(!keys.contains(key))
                 {
+        			if(subHandler != null)
+        	    	{
+        				Set<String> keys = publisher.subsbribedKeysInAllActiveChannels();
+        				if(!keys.contains(key))	//第一次订阅该key
+        				{
+        					subHandler.handleSubMessage(sub);
+        	        	}
+        				else 
+        				{
+        					log.info("key:{}被channel:{}订阅，但是因为其他channel已经订阅该key，因此不触发订阅事件!", key, ctx.channel());
+        				}
+        			}
                 	keys.add(key);
-                	if(publisher.getSubHandler() != null)
-                	{
-                		publisher.getSubHandler().handleSubMessage(sub);
-                	}
                 }
         	}
         }
@@ -66,13 +74,24 @@ public class PublisherChannelHandler extends ChannelInboundHandlerAdapter{
         {
         	UnsubMessage unsub = (UnsubMessage)message;
         	String key = unsub.getKey();
-        	if(keys.contains(key))
+        	if(key != null)
         	{
-        		keys.remove(key);
-        		if(publisher.getSubHandler() != null)
-        		{
-        			publisher.getSubHandler().handleUnsubMessage(unsub);
-        		}
+        		if(keys.contains(key))
+            	{
+            		keys.remove(key);
+            		if(subHandler != null)
+                	{
+            			Set<String> keys = publisher.subsbribedKeysInAllActiveChannels();
+            			if(!keys.contains(key))	//取消订阅之后无人订阅
+            			{
+            				subHandler.handleUnsubMessage(unsub);
+            			}
+            			else 
+            			{
+            				log.info("key:{}被channel:{}取消订阅，但是因为其他channel正在订阅该key，因此不触发取消订阅事件!", key, ctx.channel());
+            			}
+                	}
+            	}
         	}
         }
         log.info("更新后的keys:{}", keys);

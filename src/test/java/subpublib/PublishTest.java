@@ -20,12 +20,12 @@ public class PublishTest {
 
 		@Override
 		public void handleSubMessage(SubMessage msg) {
-			log.info("订阅: {}", msg);
+			log.info("【业务】收到订阅: {}", msg);
 		}
 
 		@Override
 		public void handleUnsubMessage(UnsubMessage msg) {
-			log.info("取消订阅: {}", msg);
+			log.info("【业务】收到取消订阅: {}", msg);
 		}
 	};
 	
