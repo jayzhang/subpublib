@@ -1,8 +1,8 @@
 package com.qxwz.ps.sp;
 
-import java.util.HashSet;
 import java.util.Set;
 
+import com.google.common.collect.Sets;
 import com.qxwz.ps.sp.msg.Message;
 import com.qxwz.ps.sp.msg.SubMessage;
 import com.qxwz.ps.sp.msg.UnsubMessage;
@@ -17,16 +17,12 @@ public class PublisherChannelHandler extends ChannelInboundHandlerAdapter{
 
 	private Publisher publisher;
 	
-//	@Setter @Getter
-//	private String subsriberName;
-	
-	public volatile Set<String> keys = new HashSet<>(); // 订阅的所有key的集合
+	public Set<String> keys = Sets.newConcurrentHashSet(); // 订阅的所有key的集合
 	
 	public PublisherChannelHandler(Publisher publisher)
 	{
 		this.publisher = publisher;
 	}
-	
 	
 	@Override
     public void channelActive(ChannelHandlerContext ctx) throws Exception {
@@ -36,16 +32,16 @@ public class PublisherChannelHandler extends ChannelInboundHandlerAdapter{
 	@Override
     public void channelInactive(ChannelHandlerContext ctx) throws Exception {
 		log.info("channelInactive: {}", ctx.channel());
+		log.info("尝试取消所有channel:{}订阅的keys:{}", ctx.channel(), keys);
 		publisher.removeChannel(ctx.channel());
+		publisher.handleUnsubKeys(keys);
     }
-	
-	
+	 
 	@Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception 
 	{
-		log.info("收到消息:{}, ch:{}, 更新前被订阅的keys:{}", msg, ctx.channel(), keys);
+		log.info("channelRead start! 收到消息:{}, ch:{}, 当前keys:{}", msg, ctx.channel(), keys);
         Message message = (Message) msg;
-        ISubHandler subHandler = publisher.getSubHandler();
         if(message instanceof SubMessage)
         {
         	SubMessage sub = (SubMessage)message;
@@ -54,19 +50,8 @@ public class PublisherChannelHandler extends ChannelInboundHandlerAdapter{
         	{
         		if(!keys.contains(key))
                 {
-        			if(subHandler != null)
-        	    	{
-        				Set<String> keys = publisher.subsbribedKeysInAllActiveChannels();
-        				if(!keys.contains(key))	//第一次订阅该key
-        				{
-        					subHandler.handleSubMessage(sub);
-        	        	}
-        				else 
-        				{
-        					log.info("key:{}被channel:{}订阅，但是因为其他channel已经订阅该key，因此不触发订阅事件!", key, ctx.channel());
-        				}
-        			}
-                	keys.add(key);
+        			keys.add(key);
+        			publisher.onMessage(message);
                 }
         	}
         }
@@ -78,23 +63,12 @@ public class PublisherChannelHandler extends ChannelInboundHandlerAdapter{
         	{
         		if(keys.contains(key))
             	{
-            		keys.remove(key);
-            		if(subHandler != null)
-                	{
-            			Set<String> keys = publisher.subsbribedKeysInAllActiveChannels();
-            			if(!keys.contains(key))	//取消订阅之后无人订阅
-            			{
-            				subHandler.handleUnsubMessage(unsub);
-            			}
-            			else 
-            			{
-            				log.info("key:{}被channel:{}取消订阅，但是因为其他channel正在订阅该key，因此不触发取消订阅事件!", key, ctx.channel());
-            			}
-                	}
+        			keys.remove(key);
+        			publisher.onMessage(message);
             	}
         	}
         }
-        log.info("更新后的keys:{}", keys);
+        log.info("channelRead finish! ch:{}, keys:{}", ctx.channel(), keys);
     }
 	
 }

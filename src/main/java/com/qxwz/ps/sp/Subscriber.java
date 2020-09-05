@@ -52,10 +52,6 @@ public class Subscriber extends ChannelInboundHandlerAdapter implements IZkChild
 	@Setter
 	private IPubHandler pubHandler;
 	
-//	@Setter
-//	private String name = "";
-
-
     public Subscriber(ZkClient zkclient, String zkBasePath)
 	{
 		this.zkclient = zkclient;
@@ -232,9 +228,7 @@ public class Subscriber extends ChannelInboundHandlerAdapter implements IZkChild
 			if (!channel.isWritable()) {
 				log.warn("channel:{} can not write message to channelBuffer",channel);
 			}
-
 			SubMessage sub = new SubMessage(key);
-//			sub.setSubscriberName(name);
 			channel.writeAndFlush(sub);
 			key2channel.put(key, channel);
 			log.info("通过{}订阅数据:{}", channel, key);
@@ -339,8 +333,6 @@ public class Subscriber extends ChannelInboundHandlerAdapter implements IZkChild
 				transferKeys(ctx.channel());
 			}
 		});
-
-//		transferKeys(ctx.channel());
     }
 
     public void unsubscribe(String key)

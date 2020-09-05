@@ -1,18 +1,27 @@
 package com.qxwz.ps.sp;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 import org.I0Itec.zkclient.ZkClient;
-import org.apache.commons.lang.StringUtils;
 
 import com.google.common.base.Joiner;
+import com.google.common.base.Splitter;
+import com.google.common.collect.Sets;
+import com.google.common.collect.Sets.SetView;
+import com.qxwz.ps.sp.msg.Message;
 import com.qxwz.ps.sp.msg.PubMessage;
 import com.qxwz.ps.sp.msg.SubMessage;
+import com.qxwz.ps.sp.msg.SyncMessage;
 import com.qxwz.ps.sp.msg.UnsubMessage;
 
 import io.netty.bootstrap.ServerBootstrap;
@@ -57,9 +66,17 @@ public class Publisher{
 	private EventLoopGroup bossGroup;
 	private EventLoopGroup workerGroup;
 	
-	private volatile Set<String> keys = new TreeSet<>(); // 订阅的所有key的集合
-	private volatile Set<Channel> channels = new HashSet<>();
+	private volatile Map<String, Integer> keys = new HashMap<>(); // 当前订阅的所有key被订阅的链路数
+	private volatile Set<Channel> channels = Sets.newConcurrentHashSet(); // 当前所有连接
+	
 	private ScheduledExecutorService executorService = Executors.newSingleThreadScheduledExecutor(new DefaultThreadFactory("Publisher-SubKeysSyncer-"));
+	
+	private LinkedBlockingQueue<Message> msgQueue = new LinkedBlockingQueue<>(1000000);
+	
+	private Thread zkSyncThread;
+	
+	private int batchSyncSize = 1000;
+	private int batchSyncSecs = 5;
 	
 	private String mypath;
 	
@@ -102,7 +119,7 @@ public class Publisher{
 				zkclient.delete(mypath);
 				zkclient.createEphemeral(mypath);
 				log.info("createEphemeral:{}", mypath);
-				executorService.scheduleWithFixedDelay(()->checkKeysChange(),syncZkInterval,syncZkInterval, TimeUnit.SECONDS);
+				executorService.scheduleWithFixedDelay(()->syncKeysWithZK(),syncZkInterval,syncZkInterval, TimeUnit.SECONDS);
 				log.info("Publisher init success");
 			}else {
 				log.warn("Publisher start failed.....");
@@ -111,29 +128,156 @@ public class Publisher{
 				}
 			}
 		});
+		
+		zkSyncThread = new Thread(()->
+		{
+			while(true)
+    		{
+    			List<Message> list = new ArrayList<>();
+        		while(true)
+        		{
+    				try {
+    					Message msg = msgQueue.poll(batchSyncSecs, TimeUnit.SECONDS);
+    					if(msg != null)
+    	        		{
+    	        			list.add(msg);
+    	        			if(list.size() == batchSyncSize) //一直有数据，但是list满了，需要清掉
+    	        			{
+    	        				break;
+    	        			}
+    	        		}
+    					else  //等够batchSyncSecs秒，没数据了
+    					{
+    						break;
+    					}
+    				} catch (InterruptedException e) {
+    					// TODO Auto-generated catch block
+    					e.printStackTrace();
+    				}
+        		}
+        		
+        		if(list.size() > 0)
+        		{
+        			try
+        			{
+        				log.info("处理订阅/反订阅消息, size:{}", list.size());
+        				Map<String, Integer> delta = new HashMap<>();
+        				boolean syncWhole = list.size() == 1 && list.get(0) instanceof SyncMessage;
+        				if(syncWhole)
+        				{
+        					Set<String> newKeys = new TreeSet<>();
+        					Map<String, Integer> newKeysMap = new HashMap<>();
+        					for(Channel ch: channels)
+        					{
+        						if(ch.isActive())
+        						{
+        							Set<String> channelKeys = ch.pipeline().get(PublisherChannelHandler.class).keys;
+        							newKeys.addAll(channelKeys);
+        							for(String k : newKeys)
+        							{
+        								newKeysMap.put(k, newKeysMap.getOrDefault(k, 0) + 1);
+        							}
+        						}
+        					}
+        					this.keys = newKeysMap;
+        					String zkData = (String)zkclient.readData(mypath);
+        					List<String> zklist = Splitter.on(",").splitToList(zkData);
+        					Set<String> zkKeys = Sets.newHashSet(zklist);
+        					SetView<String> diff = Sets.symmetricDifference(zkKeys, newKeys);
+        					if(diff.size() > 0)// 总key发生变化
+        					{
+        						String newZkData = Joiner.on(",").join(newKeys);
+        						zkclient.writeData(mypath, newZkData);
+        						log.info("订阅的keys发生变化, 写zk, path:{}, keys size:{}, data:{}", mypath, newKeys.size(), newZkData);
+        					}
+        				}
+        				else 
+        				{
+        					Set<String> addKeys = new HashSet<>();
+        					Set<String> removeKeys = new HashSet<>();
+        					for(Message msg: list)
+            				{
+            					if(msg instanceof SubMessage)
+            					{
+            						String k = ((SubMessage) msg).getKey();
+            						Integer subCount = keys.getOrDefault(k,0);
+            						if(subCount == 0)
+            						{
+            							addKeys.add(k);
+            						}
+            						keys.put(k, subCount + 1);
+            						delta.put(k, delta.getOrDefault(k,0) + 1);
+            					}
+            					else if(msg instanceof UnsubMessage)
+            					{
+            						String k = ((UnsubMessage) msg).getKey();
+            						Integer subCount = keys.getOrDefault(k,0);
+            						if(subCount <= 1)
+            						{
+            							keys.remove(k);
+            							removeKeys.add(k);
+            						}
+            						else 
+            						{
+            							keys.put(k, subCount - 1);
+            						}
+            						delta.put(k, delta.getOrDefault(k,0) - 1);
+            					}
+            				}
+            				Set<String> unchangedKeys = new HashSet<>();
+            				for(String k: delta.keySet())
+            				{
+            					Integer count = delta.get(k);
+            					if(count == 0)
+            					{
+            						unchangedKeys.add(k);
+            					}
+            				}
+            				addKeys.removeAll(unchangedKeys);
+            				removeKeys.removeAll(unchangedKeys);
+            				if(addKeys.size() > 0 || removeKeys.size() > 0) //订阅keys发生变化
+            				{
+            					String keystr = Joiner.on(",").join(keys.keySet());
+            					zkclient.writeData(mypath, keystr);
+        						log.info("订阅的keys发生变化, 写zk, path:{}, data:{}", mypath, keystr);
+        						if(subHandler != null)
+        						{
+        							for(String k: addKeys)
+            						{
+        								SubMessage msg = new SubMessage();
+        								msg.setKey(k);
+        								subHandler.handleSubMessage(msg);
+            						}
+        							for(String k: removeKeys)
+        							{
+        								UnsubMessage msg = new UnsubMessage();
+        								msg.setKey(k);
+        								subHandler.handleUnsubMessage(msg);
+        							}
+        						}
+            				}
+        				}
+        			}
+        			finally
+        			{
+        				list.clear();
+        			}
+        		}
+        		else 
+        		{
+        			
+        		}
+    		}
+		}) ;
+		zkSyncThread.start();
+		log.info("启动Publisher ZK同步线程!");
 	}
 	
-	public void checkKeysChange()
+	public void syncKeysWithZK()
 	{
-		Set<String> keys = new TreeSet<>();
-		for(Channel ch: channels)
-		{
-			if(ch.isActive())
-			{
-				keys.addAll(ch.pipeline().get(PublisherChannelHandler.class).keys);
-			}
-		}
-		String oldKeys = Joiner.on(",").join(this.keys);
-		String newKeys = Joiner.on(",").join(keys);
-		if(!StringUtils.equals(oldKeys, newKeys))// 总key发生变化
-		{
-			this.keys = keys;
-			zkclient.writeData(mypath, newKeys);
-			log.info("key发生变化, 写zk, path:{}, data:{}", mypath, newKeys);
-		}
+		msgQueue.add(new SyncMessage());
 	}
 	
-
 	public void addChannel(Channel channel)
 	{
 		channels.add(channel);
@@ -141,11 +285,6 @@ public class Publisher{
 	public void removeChannel(Channel channel)
 	{
 		channels.remove(channel);
-		
-		//向上层触发关闭连接的取消订阅事件
-		Set<String> keys = channel.pipeline().get(PublisherChannelHandler.class).keys;
-		log.info("尝试取消所有channel:{}订阅的keys:{}", channel, keys);
-		handleUnsubKeys(keys);
 	}
 	
 	///模拟发送数据
@@ -166,7 +305,6 @@ public class Publisher{
 	public void publish(String key, byte[] data)
 	{
 		PubMessage pub = new PubMessage(key, data);
-//		pub.setPublisherName(name);
 		for(Channel channel: channels)
 		{
 			if (channel==null) return;
@@ -185,35 +323,20 @@ public class Publisher{
 			}
 		}
 	}
-	
-	public Set<String> subsbribedKeysInAllActiveChannels()
+	 
+	public void onMessage(Message msg)
 	{
-		Set<String> keys = new HashSet<>();
-		for(Channel ch: channels)
-		{
-			if(ch.isActive())
-				keys.addAll(ch.pipeline().get(PublisherChannelHandler.class).keys);
-		}
-		return keys;
+		msgQueue.add(msg);
 	}
-	
-	
 	
 	public void handleUnsubKeys(Set<String> removingkeys)
 	{
-		if(subHandler != null)
-    	{
-			Set<String> subscribedKeys = subsbribedKeysInAllActiveChannels();
-			for(String k: removingkeys)
-			{
-				if(!subscribedKeys.contains(k))	//k取消订阅之后无人订阅
-				{
-					UnsubMessage unsub = new UnsubMessage();
-					unsub.setKey(k);
-					subHandler.handleUnsubMessage(unsub);
-				}
-			}
-    	}
+		for(String k: removingkeys)
+		{
+			UnsubMessage msg = new UnsubMessage();
+			msg.setKey(k);
+			msgQueue.add(msg);
+		}
 	}
 	
 	public void close()
