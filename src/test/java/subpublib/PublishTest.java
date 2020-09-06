@@ -41,7 +41,7 @@ public class PublishTest {
 		while(true)
 		{
 			pub.pubdataMock();
-			Thread.sleep(1000);
+			Thread.sleep(10000);
 		}
 	}
 	
@@ -57,7 +57,7 @@ public class PublishTest {
 		while(true)
 		{
 			pub.pubdataMock();
-			Thread.sleep(1000);
+			Thread.sleep(10000);
 		}
 	}
 	

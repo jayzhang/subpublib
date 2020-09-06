@@ -59,7 +59,7 @@ public class SubscriberTest {
 		sub2.setPubHandler(handler);
 		sub2.init();
 //		sub2.setName("sub2");
-		for(int i = 5; i < 15; ++ i)
+		for(int i = 1; i <= 3; ++ i)
 		{
 			sub2.subscribe(i + "");
 		}
@@ -81,7 +81,7 @@ public class SubscriberTest {
 		sub3.setPubHandler(handler);
 		sub3.init();
 //		sub3.setName("sub3");
-		for(int i = 10; i < 20; ++ i)
+		for(int i = 1; i <= 2; ++ i)
 		{
 			sub3.subscribe(i + "");
 		}
