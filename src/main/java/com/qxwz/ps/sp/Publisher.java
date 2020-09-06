@@ -77,6 +77,7 @@ public class Publisher{
 	
 	private int batchSyncSize = 1000;
 	private int batchSyncSecs = 2;
+	private volatile boolean zkSyncThreadStart = true;
 	
 	private String mypath;
 	
@@ -134,7 +135,7 @@ public class Publisher{
 		zkSyncThread = new Thread(()->
 		{
 			int fetchNum = 0;
-			while(true)
+			while(zkSyncThreadStart)
     		{
     			List<Message> list = new ArrayList<>();
         		while(true)
@@ -395,6 +396,8 @@ public class Publisher{
 	
 	public void close()
 	{
+		zkSyncThreadStart = false;
+		
 		if(bossGroup != null)
 		{
 			bossGroup.shutdownGracefully();
@@ -403,5 +406,6 @@ public class Publisher{
 		{
 			workerGroup.shutdownGracefully();
 		}
+		
 	}
 }
