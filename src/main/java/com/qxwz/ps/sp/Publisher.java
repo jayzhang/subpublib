@@ -6,7 +6,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.TreeSet;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
@@ -79,20 +78,108 @@ public class Publisher{
 	private int batchSyncSecs = 2;
 	private volatile boolean zkSyncThreadStart = true;
 	
+	@Getter
+	private volatile boolean closed = true;
+	
 	private String mypath;
 	
-	@Setter
-	private String name;
-
 	public Publisher(ZkClient zkclient, String zkBasePath)
 	{
 		this.zkclient = zkclient;
 		this.zkBasePath = zkBasePath;
+		startZkSyncThread();
+	}
+	
+	public Publisher(String zkServerAddress, String zkBasePath)
+	{
+		this.zkclient = new ZkClient(zkServerAddress);
+		this.zkBasePath = zkBasePath;
+		startZkSyncThread();
+	}
+	
+	private void startZkSyncThread()
+	{
+		int maxFetchNum = Math.max(syncZkInterval/batchSyncSecs, 1);
+		zkSyncThread = new Thread(()->
+		{
+			int fetchNum = 0;
+			while(true)
+    		{
+				if(zkSyncThreadStart)
+				{
+					List<Message> list = new ArrayList<>();
+	        		while(true)
+	        		{
+	    				try {
+	    					Message msg = msgQueue.poll(batchSyncSecs, TimeUnit.SECONDS);
+	    					if(msg != null)
+	    	        		{
+	    	        			list.add(msg);
+	    	        			if(list.size() == batchSyncSize) //一直有数据，但是list满了，需要清掉
+	    	        			{
+	    	        				break;
+	    	        			}
+	    	        		}
+	    					else  //等够batchSyncSecs秒，没数据了
+	    					{
+	    						break;
+	    					}
+	    				} catch (InterruptedException e) {
+	    					// TODO Auto-generated catch block
+	    					e.printStackTrace();
+	    				}
+	        		}
+	        		
+	        		if(list.size() > 0)
+	        		{
+	        			try
+	        			{
+	        				log.info("处理订阅/反订阅消息, size:{}", list.size());
+	        				
+	        				boolean syncWhole = list.size() == 1 && list.get(0) instanceof SyncMessage;
+	        				if(syncWhole) //全量检查
+	        				{
+	        					wholeCheck();
+	        				}
+	        				else //增量检查
+	        				{
+	        					deltaCheck(list);
+	        				}
+	        			}
+	        			finally
+	        			{
+	        				list.clear();
+	        			}
+	        		}
+	        		else //同步全量检查的时机：累积到maxFetchNum次没有增量消息时，进行一次全量同步
+	        		{
+	        			log.debug("tick!");
+	        			++ fetchNum;
+	        			if(fetchNum >= maxFetchNum)
+	        			{
+	        				triggerWholeSync();
+	        				fetchNum = 0;
+	        			}
+	        		}
+				}
+				else 
+				{
+					try {
+						Thread.sleep(batchSyncSecs * 1000);
+					} catch (InterruptedException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
+				}
+    		}
+		}, "SubKeysZkSyncer");
+		zkSyncThread.start();
+		log.info("启动Publisher-SubKeysZkSyncer线程!");
 	}
 	
 	synchronized public void init()
 	{
-		log.info("start to init Pubsublib Publisher.....");
+		log.info("@@@@@@@@@@@@@启动发布!");
 		if(!zkclient.exists(zkBasePath))
 		{
 			zkclient.createPersistent(zkBasePath,true);
@@ -122,6 +209,7 @@ public class Publisher{
 				log.info("createEphemeral:{}", mypath);
 //				executorService.scheduleWithFixedDelay(()->triggerWholeSync(),syncZkInterval,syncZkInterval, TimeUnit.SECONDS);
 				log.info("Publisher init success");
+				closed = false;
 			}else {
 				log.warn("Publisher start failed.....");
 				if (channelFuture.cause()!=null) {
@@ -129,72 +217,6 @@ public class Publisher{
 				}
 			}
 		});
-		
-		int maxFetchNum = Math.max(syncZkInterval/batchSyncSecs, 1);
-		
-		zkSyncThread = new Thread(()->
-		{
-			int fetchNum = 0;
-			while(zkSyncThreadStart)
-    		{
-    			List<Message> list = new ArrayList<>();
-        		while(true)
-        		{
-    				try {
-    					Message msg = msgQueue.poll(batchSyncSecs, TimeUnit.SECONDS);
-    					if(msg != null)
-    	        		{
-    	        			list.add(msg);
-    	        			if(list.size() == batchSyncSize) //一直有数据，但是list满了，需要清掉
-    	        			{
-    	        				break;
-    	        			}
-    	        		}
-    					else  //等够batchSyncSecs秒，没数据了
-    					{
-    						break;
-    					}
-    				} catch (InterruptedException e) {
-    					// TODO Auto-generated catch block
-    					e.printStackTrace();
-    				}
-        		}
-        		
-        		if(list.size() > 0)
-        		{
-        			try
-        			{
-        				log.info("处理订阅/反订阅消息, size:{}", list.size());
-        				
-        				boolean syncWhole = list.size() == 1 && list.get(0) instanceof SyncMessage;
-        				if(syncWhole) //全量检查
-        				{
-        					wholeCheck();
-        				}
-        				else //增量检查
-        				{
-        					deltaCheck(list);
-        				}
-        			}
-        			finally
-        			{
-        				list.clear();
-        			}
-        		}
-        		else //同步全量检查的时机：累积到maxFetchNum次没有增量消息时，进行一次全量同步
-        		{
-        			log.debug("tick!");
-        			++ fetchNum;
-        			if(fetchNum >= maxFetchNum)
-        			{
-        				triggerWholeSync();
-        				fetchNum = 0;
-        			}
-        		}
-    		}
-		}, "SubKeysZkSyncer");
-		zkSyncThread.start();
-		log.info("启动Publisher-SubKeysZkSyncer线程!");
 	}
 	
 	
@@ -345,13 +367,7 @@ public class Publisher{
 	///模拟发送数据
 	public void pubdataMock()
 	{
-		Set<String> allKeys = new TreeSet<>();
-		for(Channel channel: channels)
-		{
-			Set<String> keys = channel.pipeline().get(PublisherChannelHandler.class).keys;
-			allKeys.addAll(keys);
-		}
-		for(String key: allKeys)
+		for(String key: keys.keySet())
 		{
 			publish(key, key.getBytes());
 		}
@@ -396,6 +412,7 @@ public class Publisher{
 	
 	public void close()
 	{
+		log.info("################关闭发布!");
 		zkSyncThreadStart = false;
 		
 		if(bossGroup != null)
@@ -407,5 +424,10 @@ public class Publisher{
 			workerGroup.shutdownGracefully();
 		}
 		
+		keys.clear();
+		channels.clear();
+		msgQueue.clear();
+		
+		closed = true;
 	}
 }

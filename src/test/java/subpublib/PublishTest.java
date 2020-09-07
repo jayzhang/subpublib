@@ -34,7 +34,6 @@ public class PublishTest {
 	{
 		Publisher pub = new Publisher(zkclient, "/subpub_test");
 		pub.setPort(29001);
-		pub.setName("pub1");
 		pub.setSubHandler(handler);
 		pub.init();
 		
@@ -50,7 +49,6 @@ public class PublishTest {
 	{
 		Publisher pub = new Publisher(zkclient, "/subpub_test");
 		pub.setPort(29002);
-		pub.setName("pub2");
 		pub.setSubHandler(handler);
 		pub.init();
 		
@@ -66,7 +64,6 @@ public class PublishTest {
 	{
 		Publisher pub = new Publisher(zkclient, "/subpub_test");
 		pub.setPort(29003);
-		pub.setName("pub3");
 		pub.setSubHandler(handler);
 		pub.init();
 		

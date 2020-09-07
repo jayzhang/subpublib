@@ -81,7 +81,7 @@ public class SubscriberTest {
 		sub3.setPubHandler(handler);
 		sub3.init();
 //		sub3.setName("sub3");
-		for(int i = 1; i <= 2; ++ i)
+		for(int i = 4; i <= 6; ++ i)
 		{
 			sub3.subscribe(i + "");
 		}
@@ -105,7 +105,7 @@ public class SubscriberTest {
 		sub.setPubHandler(handler);
 		sub.init();
 		sub.subscribe("1");
-		for(int i = 0 ; i < 20; ++ i)
+		for(int i = 4 ; i <= 6; ++ i)
 		{
 			try {
 				Thread.sleep(1000);
@@ -133,7 +133,7 @@ public class SubscriberTest {
 		Subscriber sub = new Subscriber(zkclient, "/subpub_test");
 		sub.setPubHandler(handler);
 		sub.init();
-		sub.subscribe("1");
+		sub.subscribe("4");
 		while(true)
 		{
 			try {

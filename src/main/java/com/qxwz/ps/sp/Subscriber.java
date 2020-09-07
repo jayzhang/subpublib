@@ -1,28 +1,40 @@
 package com.qxwz.ps.sp;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Set;
+
+import org.I0Itec.zkclient.IZkChildListener;
+import org.I0Itec.zkclient.IZkDataListener;
+import org.I0Itec.zkclient.ZkClient;
+import org.apache.commons.lang.StringUtils;
+
 import com.google.common.base.Splitter;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.qxwz.ps.sp.msg.PubMessage;
 import com.qxwz.ps.sp.msg.SubMessage;
 import com.qxwz.ps.sp.msg.UnsubMessage;
+
 import io.netty.bootstrap.Bootstrap;
-import io.netty.channel.*;
+import io.netty.channel.Channel;
+import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandler.Sharable;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelInboundHandlerAdapter;
+import io.netty.channel.ChannelOption;
+import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.util.concurrent.DefaultThreadFactory;
+import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
-import org.I0Itec.zkclient.IZkChildListener;
-import org.I0Itec.zkclient.IZkDataListener;
-import org.I0Itec.zkclient.ZkClient;
-import org.apache.commons.lang.StringUtils;
-
-import java.util.*;
-import java.util.Map.Entry;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 
 @Slf4j
@@ -47,11 +59,19 @@ public class Subscriber extends ChannelInboundHandlerAdapter implements IZkChild
 	private volatile Map<String, Set<String>> routerMap = new HashMap<>(); // remote channel address ----> key set
 	private volatile Map<String, Channel> key2channel = new HashMap<>();  // key------>channel
 	private volatile Set<String> pendingKeys = new HashSet<>(); //暂时订阅不上的key 
-	private ExecutorService executorService = Executors.newSingleThreadExecutor();
+//	private ExecutorService executorService;
 
-	@Setter
+	@Setter @Getter
 	private IPubHandler pubHandler;
 	
+	@Getter
+	private volatile boolean closed = true;
+	
+	public Subscriber(String zkServerAddress, String zkBasePath) {
+		this.zkclient = new ZkClient(zkServerAddress);
+		this.zkBasePath = zkBasePath;
+	}
+	 
     public Subscriber(ZkClient zkclient, String zkBasePath)
 	{
 		this.zkclient = zkclient;
@@ -61,6 +81,7 @@ public class Subscriber extends ChannelInboundHandlerAdapter implements IZkChild
 
     public void init()
 	{
+    	log.info("@@@@@@初始化订阅!");
 		if(!zkclient.exists(zkBasePath))
 		{
 			zkclient.createPersistent(zkBasePath,true);
@@ -79,6 +100,7 @@ public class Subscriber extends ChannelInboundHandlerAdapter implements IZkChild
 			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
+		closed = false;
 	}
 
 
@@ -111,13 +133,13 @@ public class Subscriber extends ChannelInboundHandlerAdapter implements IZkChild
 					zkclient.subscribeDataChanges(dataPath, this);  //订阅新的publisher所发布的key数据
 					Object data = zkclient.readData(dataPath, true);
 					handleDataChange(dataPath, data); //初始化读取路由表
-					log.info("新的pub上线，subscribeDataChanges, path:{}", parentPath + "/" + child);
+					log.info("监测到新的Publisher上线，subscribeDataChanges, path:{}", parentPath + "/" + child);
 					//一旦有新的publisher，则将未订阅成功的key重新发起订阅
 					Set<String> succKeys = new HashSet<>();
 					for(String k: pendingKeys)
 					{
-						boolean succ = subscribe(k);
-						if(succ)
+						Channel ch = subscribe(k);
+						if(ch != null)
 						{
 							succKeys.add(k);
 						}
@@ -184,9 +206,84 @@ public class Subscriber extends ChannelInboundHandlerAdapter implements IZkChild
 		routerMap.remove(addr);
 	}
 
-    public synchronized boolean subscribe(String key)
+	/**
+	 * 订阅key，返回remote发布者的网络地址
+	 * @param key
+	 * @return
+	 */
+    public synchronized Channel subscribe(String key)
 	{
 		log.info("尝试订阅数据, key:{}", key);
+		List<String> existingList = new ArrayList<>();
+		int min = Integer.MAX_VALUE;
+		String idlePub = null;
+        int existingMin = Integer.MAX_VALUE;
+		String existingIdlePub = null;
+        List<String> addrs = Lists.newArrayList(routerMap.keySet());
+        Collections.shuffle(addrs);
+        for (String addr : addrs)
+		{
+			Set<String> keys = routerMap.get(addr);
+			Channel channel = channelMap.get(addr);
+			if(channel == null || !channel.isWritable())
+			{
+				continue;
+			}
+			if(keys.contains(key))
+			{
+				existingList.add(addr);
+				if(existingMin > keys.size())
+				{
+					existingMin = keys.size();
+					existingIdlePub = addr;
+				}
+			}
+			if(min > keys.size())
+			{
+				min = keys.size();
+				idlePub = addr;
+			}
+		}
+		Channel channel = null;
+		if(existingList.size() == 0)  //没有现存订阅的结点，随机选一台pub
+		{
+			if(idlePub != null)
+			{
+				channel = channelMap.get(idlePub);
+				log.info("key:{}未订阅过，挑选出最空闲的pub: {}, 负载:{}", key, idlePub, min);
+			}
+		}
+		else //有现存订阅的结点，在现存中随机选一台pub
+		{
+			if(existingIdlePub != null)
+			{
+				channel = channelMap.get(existingIdlePub);
+				log.info("key:{}已订阅过，挑选出最空闲的pub: {}, 负载:{}", key, existingIdlePub, existingMin);
+			}
+		}
+		if(channel != null)
+		{
+			if (!channel.isWritable()) {
+				log.warn("channel:{} can not write message to channelBuffer",channel);
+			}
+			else 
+			{
+				SubMessage sub = new SubMessage(key);
+				channel.writeAndFlush(sub);
+				key2channel.put(key, channel);
+				log.info("通过{}订阅数据:{}", channel, key);
+				return channel;
+			}
+        } 
+		key2channel.put(key, null); //暂时无法找到pub
+		pendingKeys.add(key);
+		log.error("没有pub可订阅， 当前pending的keys:{}", pendingKeys);
+		return null;
+	}
+     
+    public Channel subscribeMock(String key)
+	{
+		log.info("subscribeMock, key:{}", key);
 		List<String> existingList = new ArrayList<>();
 		int min = Integer.MAX_VALUE;
 		String idlePub = null;
@@ -216,46 +313,42 @@ public class Subscriber extends ChannelInboundHandlerAdapter implements IZkChild
 		if(existingList.size() == 0)  //没有现存订阅的结点，随机选一台pub
 		{
 			channel = channelMap.get(idlePub);
-			log.info("key:{}未订阅过，挑选出最空闲的pub: {}, 负载:{}", key, idlePub, min);
 		}
 		else //有现存订阅的结点，在现存中随机选一台pub
 		{
 			channel = channelMap.get(existingIdlePub);
-			log.info("key:{}已订阅过，挑选出最空闲的pub: {}, 负载:{}", key, existingIdlePub, existingMin);
 		}
-		if(channel != null)
-		{
-			if (!channel.isWritable()) {
-				log.warn("channel:{} can not write message to channelBuffer",channel);
-			}
-			SubMessage sub = new SubMessage(key);
-			channel.writeAndFlush(sub);
-			key2channel.put(key, channel);
-			log.info("通过{}订阅数据:{}", channel, key);
-			return true;
-        } 
-		else
-		{
-			key2channel.put(key, null); //暂时无法找到pub
-			pendingKeys.add(key);
-			log.error("没有pub可订阅， 当前pending的keys:{}", pendingKeys);
-			return false;
-		}
+		return channel;
 	}
-
+    
     public void close()
 	{
+    	log.info("################关闭订阅!");
 		if(workerGroup != null)
 		{
 			workerGroup.shutdownGracefully();
 		}
-        /**
-         * @author yao.lai
-         * shutdown executorService
-         */
-        if (executorService != null) {
-            executorService.shutdown();
-        }
+//        /**
+//         * @author yao.lai
+//         * shutdown executorService
+//         */
+//        if (executorService != null) {
+//            executorService.shutdown();
+//            executorService = null;
+//        }
+        
+		channelMap.clear();
+		routerMap.clear();
+		key2channel.clear();
+		pendingKeys.clear();
+		
+        closed = true;
+    }
+    
+    public Set<String> getSubscribedKeys()
+    {
+    	Set<String> set = Sets.newHashSet(key2channel.keySet());
+    	return set;
     }
 
     private void transferKeys(Channel channel)
@@ -300,42 +393,55 @@ public class Subscriber extends ChannelInboundHandlerAdapter implements IZkChild
 
         String remote = ctx.channel().remoteAddress().toString().substring(1);
 
-        Set<String> setNullKeys = new HashSet<>();
-		for(String k : key2channel.keySet())
-		{
-			if(ctx.channel() == key2channel.get(k) )
-			{
-				setNullKeys.add(k);
-			}
-		}
-
-        executorService.execute(new Runnable() {
-
-			@Override
-			public void run() {
-				Channel channel = null;
-				for(int i = 0 ; i < maxReconnCount; ++ i)
-				{
-					log.warn("remote 关闭，重新连接:{}", remote);
-					channel = connect(remote);
-					if(channel != null) //重连成功，重新维护订阅关系
-					{
-						return ;
-					}
-					try {
-						Thread.sleep(reconnInteval);
-					} catch (InterruptedException e) {
-						// TODO Auto-generated catch block
-						e.printStackTrace();
-					}
-				}
-				//重连几次都失败
-				transferKeys(ctx.channel());
-			}
-		});
+//        Set<String> setNullKeys = new HashSet<>();
+//		for(String k : key2channel.keySet())
+//		{
+//			if(ctx.channel() == key2channel.get(k) )
+//			{
+//				setNullKeys.add(k);
+//			}
+//		}
+        if(!closed)
+        {
+        	 ctx.executor().execute(()->{
+             	Channel channel = null;
+     				for(int i = 0 ; i < maxReconnCount; ++ i)
+     				{
+     					if(!closed)
+     					{
+     						log.warn("remote 关闭，重新连接:{}", remote);
+         					channel = connect(remote);
+         					if(channel != null) //重连成功，重新维护订阅关系
+         					{
+         						return ;
+         					}
+         					try {
+         						Thread.sleep(reconnInteval);
+         					} catch (InterruptedException e) {
+         						// TODO Auto-generated catch block
+         						e.printStackTrace();
+         					}
+     					}
+     				}
+     				//重连几次都失败
+     				transferKeys(ctx.channel());
+             });
+        }
+       
+//        if(executorService != null)
+//        {
+//        	 executorService.execute(new Runnable() {
+//
+//     			@Override
+//     			public void run() {
+//     				
+//     			}
+//     		});
+//        }
+       
     }
 
-    public void unsubscribe(String key)
+    public Channel unsubscribe(String key)
 	{
 		log.info("尝试取消订阅数据, key:{}", key);
 		Channel channel = key2channel.get(key);
@@ -348,7 +454,15 @@ public class Subscriber extends ChannelInboundHandlerAdapter implements IZkChild
 		}
 		pendingKeys.remove(key);
 		log.info("pendingKeys:{}", pendingKeys);
+		return channel;
 	}
+    
+    public Channel unsubscribeMock(String key)
+   	{
+   		log.info("unsubscribeMock, key:{}", key);
+   		Channel channel = key2channel.get(key);
+   		return channel;
+   	}
 
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
